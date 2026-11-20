@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ninjago Radar</title>
+<style>
+:root{--bg:#10131c;--card:#1a1f2c;--line:#2b3244;--txt:#eef1f7;--mut:#9aa3b8;--red:#e63946;--blue:#3a86ff;--gold:#ffb703;--ok:#2ec4b6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.5 "Trebuchet MS",system-ui,sans-serif}
+header{padding:20px 16px 8px;max-width:1200px;margin:auto}
+h1{margin:0;font-size:1.9rem;letter-spacing:-.5px}
+h1 span{color:var(--red)}
+.sub{color:var(--mut);margin:4px 0 0}
+.bar{max-width:1200px;margin:auto;padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+button,select{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font:inherit;cursor:pointer}
+button:hover,select:hover{border-color:var(--blue)}
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+button.main{background:var(--red);border-color:var(--red);font-weight:700}
+button.on{border-color:var(--gold);color:var(--gold)}
+#status{max-width:1200px;margin:auto;padding:0 16px 8px;color:var(--mut);font-size:.9rem}
+#status.err{color:#ff8a8a}
+main{max-width:1200px;margin:auto;padding:8px 16px 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.thumb{position:relative;display:block}
+.thumb img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#000}
+.dur{position:absolute;right:8px;bottom:8px;background:#000c;padding:1px 6px;border-radius:4px;font-size:.8rem}
+.score{position:absolute;left:8px;top:8px;width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-weight:800;color:#111;background:conic-gradient(var(--gold),var(--red),var(--blue),var(--gold));box-shadow:0 2px 8px #0008}
+.score b{width:44px;height:44px;border-radius:50%;background:var(--bg);color:var(--txt);display:grid;place-items:center;font-size:.85rem}
+.body{padding:12px;display:flex;flex-direction:column;gap:6px;flex:1}
+.body h3{margin:0;font-size:1rem;line-height:1.3}
+.body h3 a{color:inherit;text-decoration:none}
+.body h3 a:hover{color:var(--blue)}
+.meta{color:var(--mut);font-size:.85rem}
+.stats{display:flex;flex-wrap:wrap;gap:12px;font-size:.88rem}
+.row{display:flex;gap:8px;margin-top:auto;padding-top:6px}
+.row button{flex:1;font-size:.88rem;padding:7px}
+details{border-top:1px solid var(--line);padding:0 12px 10px}
+summary{cursor:pointer;padding:10px 0;color:var(--gold);font-weight:700}
+details h4{margin:10px 0 4px;font-size:.9rem;color:var(--blue)}
+details ul{margin:0;padding-left:18px;font-size:.88rem}
+details li{margin:3px 0}
+.empty{grid-column:1/-1;text-align:center;color:var(--mut);padding:50px 10px}
+dialog{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:12px;max-width:560px;width:calc(100% - 24px);padding:20px}
+dialog::backdrop{background:#000a}
+dialog ol{padding-left:20px}
+dialog input{width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit;margin:8px 0}
+dialog a{color:var(--blue)}
+.note{font-size:.85rem;color:var(--mut)}
+@media(prefers-reduced-motion:no-preference){button{transition:border-color .15s}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ninjago <span>Radar</span></h1>
+  <p class="sub">Les vidéos longues Ninjago qui percent en ce moment, à reproduire avec ton angle.</p>
+</header>
+
+<div class="bar">
+  <select id="fPeriod" aria-label="Période">
+    <option value="15">15 derniers jours</option>
+    <option value="7">7 derniers jours</option>
+  </select>
+  <select id="fDur" aria-label="Durée minimale">
+    <option value="8">Plus de 8 min</option>
+    <option value="15">Plus de 15 min</option>
+    <option value="20">Plus de 20 min</option>
+  </select>
+  <select id="fSort" aria-label="Tri">
+    <option value="score">Tri : score de percée</option>
+    <option value="views">Tri : nombre de vues</option>
+  </select>
+  <button id="btnFav">Favoris uniquement</button>
+  <button id="btnCsv">Exporter en CSV</button>
+</div>
+<div id="status" role="status"></div>
+<main id="grid"></main>
+
+
+<script>
+// ===== Réglages =====
+const KEYWORDS = ["Ninjago","Lego Ninjago","Ninjago set","Ninjago saison","Ninjago théorie","Ninjago review","Ninjago speed build","Ninjago MOC","Ninjago minifigures"];
+const REFRESH_DAYS = 7;      // actualisation automatique
+const FETCH_DAYS = 15;       // fenêtre de recherche
+
+// ===== Stockage local (protégé par try/catch) =====
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+const $ = s => document.querySelector(s);
+const st = { key: LS.get("nr_key",""), videos: LS.get("nr_videos",[]), updated: LS.get("nr_updated",0), favs: LS.get("nr_favs",{}), favOnly:false, busy:false };
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtN = n => n >= 1e6 ? (n/1e6).toFixed(1)+" M" : n >= 1e3 ? (n/1e3).toFixed(1)+" k" : String(n);
+function parseDur(iso){ const m = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(iso)||[]; return (+m[1]||0)*3600 + (+m[2]||0)*60 + (+m[3]||0); }
+function fmtDur(s){ const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60; return (h?h+":"+String(m).padStart(2,"0"):m)+":"+String(x).padStart(2,"0"); }
+function setStatus(t, err){ const e = $("#status"); e.textContent = t; e.className = err ? "err" : ""; }
+
+// ===== Chargement des données (data.json, mis à jour chaque lundi par GitHub) =====
+async function load(){
+  try{
+    const r = await fetch("data.json?t=" + Date.now());
+    if(!r.ok) throw new Error("data.json introuvable.");
+    const j = await r.json();
+    st.videos = j.videos || []; st.updated = j.updated || 0;
+    render();
+  }catch(e){ setStatus("Impossible de charger les données : " + e.message, true); }
+}
+
+// ===== Idées à reproduire (règles automatiques, sans IA) =====
+function ideas(v){
+  const t = v.title, mins = Math.round(v.dur/60);
+  const topic = (t.replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu,"").split(/[|:–—]/)[0].replace(/\s+/g," ").trim().slice(0,50)) || t;
+  const short = topic.split(" ").slice(0,3).join(" ").toUpperCase();
+  const why = [];
+  if(/\b\d{5}\b/.test(t)) why.push("Le numéro de set dans le titre attire les gens qui cherchent précisément ce produit.");
+  else if(/\d/.test(t)) why.push("Un chiffre dans le titre rend la promesse concrète.");
+  if(/\?/.test(t)) why.push("Le titre pose une question, ce qui donne envie de la réponse.");
+  if(/[A-ZÉ]{4,}/.test(t)) why.push("Des mots en majuscules font ressortir le titre dans les résultats.");
+  if(/théorie|theory|secret|histoire|explication|fin\b|origine/i.test(t)) why.push("Sujet de lore ou de mystère : les fans adorent les explications et les théories.");
+  if(/build|construi|moc|review|test|unbox|set\b/i.test(t)) why.push("Contenu concret (construction, set ou test) facile à comprendre en un coup d’œil.");
+  if(v.subs > 0 && v.views > v.subs) why.push("La chaîne a " + fmtN(v.subs) + " abonnés mais la vidéo fait " + fmtN(v.views) + " vues : c’est le sujet qui porte la vidéo, pas la notoriété.");
+  why.push("Durée de " + mins + " min : assez long pour un bon temps de visionnage.");
+  const y = new Date().getFullYear();
+  return {
+    why,
+    ideas:[
+      "Même sujet avec ton angle : « " + topic + " », avec ta mise en scène et tes minifigs.",
+      "Version « ce que les autres ont oublié » : reprends « " + topic + " » en ajoutant 2 ou 3 détails absents de la vidéo d’origine.",
+      "Version comparatif ou classement : « " + topic + " » face à une alternative, ou un top 5 sur le même thème."
+    ],
+    titles:[
+      topic + " : j’ai testé, voici mon avis honnête",
+      topic + " : tout ce qu’il faut savoir en " + y,
+      "Je refais " + topic + " à ma façon (résultat surprenant)"
+    ],
+    thumb:"Gros plan sur l’élément central, 2 ou 3 mots maximum en très gros (ex. « " + short + " »), couleurs vives et contrastées, une minifig avec une expression marquée."
+  };
+}
+
+// ===== Affichage =====
+function visible(){
+  const days = +$("#fPeriod").value, minDur = +$("#fDur").value*60, sort = $("#fSort").value;
+  const since = Date.now() - days*864e5;
+  return st.videos
+    .filter(v => new Date(v.published).getTime() >= since && v.dur >= minDur && (!st.favOnly || st.favs[v.id]))
+    .sort((a,b) => b[sort] - a[sort]);
+}
+function render(){
+  const g = $("#grid"), list = visible();
+  $("#btnFav").classList.toggle("on", st.favOnly);
+  if(!list.length){
+    g.innerHTML = '<div class="empty">' + (st.videos.length
+      ? "Aucune vidéo avec ces filtres. Élargis la période ou la durée."
+      : "Aucune donnée pour l’instant. La première mise à jour automatique n’a pas encore eu lieu.") + "</div>";
+  } else {
+    g.innerHTML = list.map(v => {
+      const d = ideas(v), url = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.id);
+      return '<article class="card">' +
+        '<a class="thumb" href="' + url + '" target="_blank" rel="noopener"><img loading="lazy" src="' + esc(v.thumb) + '" alt="">' +
+        '<span class="score" title="Score de percée"><b>x' + v.score + '</b></span><span class="dur">' + fmtDur(v.dur) + '</span></a>' +
+        '<div class="body"><h3><a href="' + url + '" target="_blank" rel="noopener">' + esc(v.title) + '</a></h3>' +
+        '<div class="meta">' + esc(v.channel) + ' · ' + (v.subs ? fmtN(v.subs) + ' abonnés' : 'abonnés masqués') + ' · ' + new Date(v.published).toLocaleDateString("fr-FR") + '</div>' +
+        '<div class="stats"><span>' + fmtN(v.views) + ' vues</span><span>' + fmtN(v.likes) + ' likes</span></div>' +
+        '<div class="row"><button data-fav="' + esc(v.id) + '" class="' + (st.favs[v.id] ? "on" : "") + '">' + (st.favs[v.id] ? "★ Favori" : "☆ Favori") + '</button>' +
+        '<button data-open="' + url + '">Ouvrir</button></div></div>' +
+        '<details><summary>Idées à reproduire</summary>' +
+        '<h4>Pourquoi elle fonctionne</h4><ul>' + d.why.map(x => "<li>" + esc(x) + "</li>").join("") + '</ul>' +
+        '<h4>3 idées de vidéos quasi identiques</h4><ul>' + d.ideas.map(x => "<li>" + esc(x) + "</li>").join("") + '</ul>' +
+        '<h4>3 titres possibles</h4><ul>' + d.titles.map(x => "<li>" + esc(x) + "</li>").join("") + '</ul>' +
+        '<h4>Idée de miniature</h4><ul><li>' + esc(d.thumb) + '</li></ul></details></article>';
+    }).join("");
+  }
+  if(st.updated && !$("#status").className) setStatus("Dernière mise à jour : " + new Date(st.updated).toLocaleString("fr-FR") + " · prochaine mise à jour automatique vers le " + new Date(st.updated + REFRESH_DAYS*864e5).toLocaleDateString("fr-FR"));
+}
+
+// ===== Export CSV =====
+function exportCsv(){
+  const list = visible();
+  if(!list.length){ setStatus("Rien à exporter avec ces filtres.", true); return; }
+  const q = x => '"' + String(x).replace(/"/g,'""') + '"';
+  const rows = [["Titre","Chaîne","Abonnés","Vues","Likes","Durée","Publiée le","Score","Lien"]].concat(list.map(v =>
+    [v.title, v.channel, v.subs, v.views, v.likes, fmtDur(v.dur), v.published.slice(0,10), v.score, "https://www.youtube.com/watch?v=" + v.id]));
+  const blob = new Blob(["\ufeff" + rows.map(r => r.map(q).join(";")).join("\n")], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "ninjago-radar.csv"; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ===== Événements =====
+$("#btnCsv").onclick = exportCsv;
+$("#btnFav").onclick = () => { st.favOnly = !st.favOnly; render(); };
+["#fPeriod","#fDur","#fSort"].forEach(s => $(s).onchange = render);
+$("#grid").onclick = e => {
+  const f = e.target.closest("[data-fav]"), o = e.target.closest("[data-open]");
+  if(f){ const id = f.dataset.fav; st.favs[id] ? delete st.favs[id] : st.favs[id] = 1; LS.set("nr_favs", st.favs); render(); }
+  if(o) window.open(o.dataset.open, "_blank", "noopener");
+};
+
+// ===== Démarrage =====
+render();
+load();
+</script>
+</body>
+</html>
