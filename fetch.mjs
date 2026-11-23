@@ -1,4 +1,4 @@
-// Met à jour data.json : vidéos longues Ninjago (plus de 8 min) publiées ces 15 derniers jours, avec score de percée.
+// Met à jour data.json : vidéos Ninjago de toutes durées, hors Shorts publiées ces 15 derniers jours, avec score de percée.
 import { writeFileSync } from "node:fs";
 
 const KEY = process.env.YT_API_KEY;
@@ -26,17 +26,23 @@ function parseDur(iso) {
 async function main() {
   const after = new Date(Date.now() - FETCH_DAYS * 864e5).toISOString();
   const ids = new Set();
+  // On cherche par tranche de durée (courte, moyenne, longue) pour ne rater aucune vidéo, même de 1 à 6 minutes
   for (const q of KEYWORDS) {
-    const j = await api("search", { part: "id", type: "video", q, publishedAfter: after, order: "viewCount", maxResults: 50 });
-    (j.items || []).forEach(it => it.id?.videoId && ids.add(it.id.videoId));
+    for (const videoDuration of ["short", "medium", "long"]) {
+      const j = await api("search", { part: "id", type: "video", q, videoDuration, publishedAfter: after, order: "viewCount", maxResults: 50 });
+      (j.items || []).forEach(it => it.id?.videoId && ids.add(it.id.videoId));
+    }
   }
   const list = [...ids], raw = [];
   for (let i = 0; i < list.length; i += 50) {
     const j = await api("videos", { part: "snippet,statistics,contentDetails", id: list.slice(i, i + 50).join(",") });
     raw.push(...(j.items || []));
   }
-  const vids = raw.filter(v => parseDur(v.contentDetails.duration) >= 480 &&
-    /ninjago/i.test(v.snippet.title + " " + (v.snippet.tags || []).join(" ")));
+  // Toutes les durées sont gardées (plus de 20 s, pour écarter les directs sans durée), sauf les Shorts déclarés (#shorts)
+  const vids = raw.filter(v => {
+    const txt = v.snippet.title + " " + (v.snippet.description || "") + " " + (v.snippet.tags || []).join(" ");
+    return parseDur(v.contentDetails.duration) >= 20 && /ninjago/i.test(txt) && !/#shorts?\b/i.test(txt);
+  });
   const chIds = [...new Set(vids.map(v => v.snippet.channelId))], chans = {};
   for (let i = 0; i < chIds.length; i += 50) {
     const j = await api("channels", { part: "statistics", id: chIds.slice(i, i + 50).join(",") });
